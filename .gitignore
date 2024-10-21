@@ -1,4 +1,5 @@
-# large files
+# large files & temp files
+temp.ipynb
 models/
 
 # Byte-compiled / optimized / DLL files
