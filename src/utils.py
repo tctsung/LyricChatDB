@@ -2,7 +2,20 @@ import logging
 from datetime import datetime
 import os
 import re
-
+import json
+import pandas as pd
+def jsonl_append(file_path, newline):
+	assert type(newline) == dict, "newline must be a dict"
+	with open(file_path, 'a') as f:
+		f.write(json.dumps(newline) + '\n')
+def read_jsonl(file_path, to_df=True):
+    outputs = []
+    with open(file_path, 'r') as f:
+        for line in f:
+            outputs.append(json.loads(line))
+    if to_df:
+        return pd.DataFrame(outputs)
+    return outputs
 def set_loggings(level=logging.INFO, func_name=''):
 	"""
 	TODO: set logging levels
