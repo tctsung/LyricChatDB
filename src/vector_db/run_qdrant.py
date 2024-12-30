@@ -20,28 +20,14 @@ reload(DB)
 
 
 def main():
-    # combine lyrics & summary, emotions into one df:
-    folder_path = "data/NEFFEX_2024_09_19_23_07_06"
-    with open(folder_path + "/lyrics_processed.json", "r") as f:
-        lyrics = json.load(f)
-    df_lyrics = pd.DataFrame.from_dict(
-        lyrics, orient="index"
-    )  # orient='index' means each key is a row
-    df_lyrics.columns = ["lyrics"]
-    df_features = utils.read_jsonl(folder_path + "/summary_and_emotions.json")
-    df_features.set_index("key", inplace=True)
-    # join two dataframe:
-    df_combined = df_features.join(df_lyrics, how="inner")
+    # load data:
+    filepath = "data/NEFFEX_2024_09_19_23_07_06/data_for_DB.parquet"
+    df = pd.read_parquet(filepath)
 
-    vec_embeddings = DB.VecEmbeddings(
-        device="cuda", model="models/BAAI_bge-small-en-v1.5"
-    )
-
-    qdrant_db = DB.QdrantVecDB(
-        collection_name="NEFFEX",
-        vec_embeddings=vec_embeddings,
-        url_db="http://localhost:6333",
-    )
+    # upload to Qdrant:
+    client = DB.QdrantVecDB(device="cuda")  # load cutomized OOP
+    client.create("NEFFEX", recreate=True)  # create collection
+    client.update("NEFFEX", df)  # upload data
 
 
 if __name__ == "__main__":
