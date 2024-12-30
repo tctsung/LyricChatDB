@@ -3,10 +3,13 @@
 
 import pandas as pd
 from qdrant_client import QdrantClient
-from qdrant_client.models import VectorParams, Distance, PointStruct
+from qdrant_client.models import VectorParams, Distance, PointStruct, PayloadSchemaType
 from typing import Literal
 from sentence_transformers import SentenceTransformer
 import uuid
+from dotenv import dotenv_values
+
+ENV_VAR = dotenv_values(".env")
 
 
 class QdrantVecDB:
@@ -15,6 +18,7 @@ class QdrantVecDB:
         model="models/BAAI_bge-small-en-v1.5",
         device="cpu",
         url_db="http://localhost:6333",
+        api_key=None,
     ):
         """
         TODO: customized Qdrant interface for LyricChat, includes CRUD operations
@@ -23,10 +27,12 @@ class QdrantVecDB:
         self.model = model
         self.device = device
         self.url_db = url_db
+        if api_key is None:  # get from .env if not provided
+            api_key = ENV_VAR.get("Qdrant_API_KEY", None)
 
         # setup model & DB client:
         self.load_model()  # load embedding model
-        self.client = QdrantClient(url=self.url_db)
+        self.client = QdrantClient(url=self.url_db, api_key=api_key)
 
     def load_model(self, model=None):
         """TODO: load the sentence transformer model & get the embedding dimension"""
@@ -103,3 +109,33 @@ class QdrantVecDB:
         )
         data["embedding"] = embeddings.tolist()
         return data
+
+    def index(self, collection_name, feature_dict: dict[str, PayloadSchemaType]):
+        """
+        TODO: index specific payload features to increase filtering speed
+        Args:
+            collection_name: name of the collection
+            feature_dict: dictionary with field names as keys and schemas as values
+        Eg: index("NEFFEX", {"metadata.primary_emotion": "keyword", "metadata.supporting_emotion": "keyword"})
+        """
+        for field_name, schema in feature_dict.items():
+            self.client.create_payload_index(
+                collection_name=collection_name,
+                field_name=field_name,
+                field_schema=schema,
+            )
+
+    def read(self, collection_name, query: str, limit: int = 5):
+        """
+        TODO: similarity search with query
+        """
+        search_result = self.client.search(
+            collection_name=collection_name,
+            query_vector=self.embedding_model.encode(query),
+            with_payload=True,
+            limit=limit,
+        )
+        return [result.payload for result in search_result]
+
+    # def read_rerank(self, collection_name, query: str, limit: int = 5):
+    #     """TODO: Rerank search results"""
