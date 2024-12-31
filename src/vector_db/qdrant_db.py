@@ -1,5 +1,5 @@
 # env
-# pip install qdrant-client
+# pip install qdrant-client pyarrow sentence-transformers[onnx-gpu]
 
 import pandas as pd
 from qdrant_client import QdrantClient
@@ -87,7 +87,7 @@ class QdrantVecDB:
                     vector=row["embedding"],  # embedding from self.encode()
                     payload={
                         "text": row["input"],  # text for RAG to return
-                        "metadata": row.drop(  # remaining features
+                        "metadata": row.drop(  # save all remaining features
                             ["embedding", "input"]
                         ).to_dict(),
                     },

@@ -37,7 +37,9 @@ def main():
         },
     )
     logging.info(
-        f"Upload to Qdrant completed! Collection name: {collection_name}, Number of samples: {df.shape[0]}"
+        f"""Upload to Qdrant completed! Collection name: {collection_name}, Number of samples: {df.shape[0]}\n
+Link to Database: {qdrant_url}/dashboard#/collections/{collection_name}
+"""
     )
 
 
