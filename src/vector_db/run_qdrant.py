@@ -18,6 +18,9 @@ ENV_VAR = dotenv_values(".env")
 
 
 def main():
+    """
+    TODO: upload data to Qdrant DB
+    """
     # setup
     filepath = "data/NEFFEX_2024_09_19_23_07_06/data_for_DB.parquet"
     collection_name = "NEFFEX"

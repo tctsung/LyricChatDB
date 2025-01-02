@@ -4,6 +4,8 @@
 import pandas as pd
 from qdrant_client import QdrantClient
 from qdrant_client.models import VectorParams, Distance, PointStruct, PayloadSchemaType
+from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchAny  # filter
+import types  # for generator type
 from typing import Literal
 from sentence_transformers import SentenceTransformer
 import uuid
@@ -76,7 +78,7 @@ class QdrantVecDB:
         ), "row index must be uuid"
         # prepare input:
         self.create(collection_name, recreate=False)  # create collection if not exist
-        data = self.encode(data, batch_size=batch_size)  # get vector embeddings
+        data = self._encode(data, batch_size=batch_size)  # get vector embeddings
 
         # update collection:
         self.client.upsert(
@@ -84,7 +86,7 @@ class QdrantVecDB:
             points=[
                 PointStruct(
                     id=id,  # uuid
-                    vector=row["embedding"],  # embedding from self.encode()
+                    vector=row["embedding"],  # embedding from self._encode()
                     payload={
                         "text": row["input"],  # text for RAG to return
                         "metadata": row.drop(  # save all remaining features
@@ -96,7 +98,7 @@ class QdrantVecDB:
             ],
         )
 
-    def encode(self, data, target="input", batch_size=8):
+    def _encode(self, data, target="input", batch_size=8):
         """
         TODO: Helper for update(); encode data[target] and update data with new column 'embedding'
         Args:
@@ -125,17 +127,56 @@ class QdrantVecDB:
                 field_schema=schema,
             )
 
-    def read(self, collection_name, query: str, limit: int = 5):
+    def read(
+        self,
+        collection_name,
+        query: str,
+        limit: int = 5,
+        should_conditions: dict = None,
+        must_conditions: dict = None,
+    ):
         """
         TODO: similarity search with query
         """
+        # create filter:
+        filter = self._create_qdrant_filter(should_conditions, must_conditions)
+
         search_result = self.client.search(
             collection_name=collection_name,
             query_vector=self.embedding_model.encode(query),
             with_payload=True,
             limit=limit,
+            query_filter=filter,
         )
         return [result.payload for result in search_result]
+
+    def _create_qdrant_filter(self, should_conditions=None, must_conditions=None):
+        """
+        TODO: Helper for read(); create Qdrant filter from should & must conditions
+        Eg. should_conditions = {"metadata.primary_emotion": "happy", "metadata.supporting_emotion": ["sad", "angry"]}
+        """
+
+        def create_field_condition(key, value):
+            # use MatchAny for list of values, MatchValue for single value
+            if isinstance(value, (list, tuple, types.GeneratorType)):
+                return FieldCondition(key=key, match=MatchAny(any=value))
+            else:
+                return FieldCondition(key=key, match=MatchValue(value=value))
+
+        should_filters, must_filters = [], []
+        if should_conditions:
+            should_filters = [
+                create_field_condition(key, value)
+                for key, value in should_conditions.items()
+            ]
+
+        if must_conditions:
+            must_filters = [
+                create_field_condition(key, value)
+                for key, value in must_conditions.items()
+            ]
+
+        return Filter(should=should_filters, must=must_filters)
 
     # def read_rerank(self, collection_name, query: str, limit: int = 5):
     #     """TODO: Rerank search results"""
