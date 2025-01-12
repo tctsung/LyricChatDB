@@ -7,9 +7,11 @@ from qdrant_client.models import VectorParams, Distance, PointStruct, PayloadSch
 from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchAny  # filter
 import types  # for generator type
 from typing import Literal
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 import uuid
 from dotenv import dotenv_values
+import logging
+import src.utils as utils
 
 ENV_VAR = dotenv_values(".env")
 
@@ -17,10 +19,11 @@ ENV_VAR = dotenv_values(".env")
 class QdrantVecDB:
     def __init__(
         self,
-        model="models/BAAI_bge-small-en-v1.5",
+        model="BAAI/bge-small-en-v1.5",
         device="cpu",
         url_db="http://localhost:6333",
         api_key=None,
+        logging_level="info",
     ):
         """
         TODO: customized Qdrant interface for LyricChat, includes CRUD operations
@@ -31,7 +34,7 @@ class QdrantVecDB:
         self.url_db = url_db
         if api_key is None:  # get from .env if not provided
             api_key = ENV_VAR.get("Qdrant_API_KEY", None)
-
+        utils.set_loggings(logging_level, func_name="QdrantVecDB")
         # setup model & DB client:
         self.load_model()  # load embedding model
         self.client = QdrantClient(url=self.url_db, api_key=api_key)
@@ -41,13 +44,15 @@ class QdrantVecDB:
         # change to new model if provided:
         if model is not None:
             self.model = model
-        # load model:
-        self.embedding_model = SentenceTransformer(self.model)
-        self.embedding_model.to(self.device)  # move to GPU if available
+        # load model (cache at models so no need to reload after first time)
+        self.embedding_model = TextEmbedding(model_name=self.model, cache_dir="models/")
 
         # get embedding dimension:
-        temp_output = self.embedding_model.encode("", batch_size=1)
-        self.embedding_dimension = temp_output.shape[0]
+        temp_output = self.embedding_model.embed("")
+        self.embedding_dimension = len(list(temp_output)[0])
+        logging.info(
+            f"Embedding Model {self.model} load successfully, output dimension is {self.embedding_dimension}"
+        )
 
     def create(self, collection_name, recreate=False):
         if recreate:  # delete if recreate = True
@@ -86,7 +91,7 @@ class QdrantVecDB:
             points=[
                 PointStruct(
                     id=id,  # uuid
-                    vector=row["embedding"],  # embedding from self._encode()
+                    vector=row["embedding"].tolist(),  # embedding from self._encode()
                     payload={
                         "text": row["input"],  # text for RAG to return
                         "metadata": row.drop(  # save all remaining features
@@ -106,10 +111,10 @@ class QdrantVecDB:
             target: column name to encode
             batch_size: batch size for encoding
         """
-        embeddings = self.embedding_model.encode(
-            data[target].tolist(), batch_size=batch_size
+        embeddings = list(
+            self.embedding_model.embed(data[target].tolist(), batch_size=batch_size)
         )
-        data["embedding"] = embeddings.tolist()
+        data["embedding"] = embeddings  # numpy array
         return data
 
     def index(self, collection_name, feature_dict: dict[str, PayloadSchemaType]):
@@ -140,10 +145,11 @@ class QdrantVecDB:
         """
         # create filter:
         filter = self._create_qdrant_filter(should_conditions, must_conditions)
-
+        generator_output = self.embedding_model.embed(query)
+        query_vector = list(generator_output)[0].tolist()
         search_result = self.client.search(
             collection_name=collection_name,
-            query_vector=self.embedding_model.encode(query),
+            query_vector=query_vector,
             with_payload=True,
             limit=limit,
             query_filter=filter,

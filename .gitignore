@@ -1,6 +1,7 @@
 # large files & temp files
 temp.ipynb
 models/
+data/lyrics-database
 .env
 
 # Byte-compiled / optimized / DLL files

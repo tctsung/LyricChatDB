@@ -12,6 +12,17 @@ def video_link(query):
     return f"https://www.youtube.com{results[0]['url_suffix']}"
 
 
+def find_files(directory_path=".", file_extension=".json"):
+    # TODO: find all files in a directory with specific file extension
+    file_paths = []
+
+    for root, dirs, files in os.walk(directory_path):
+        for file in files:
+            if file.endswith(file_extension):
+                file_paths.append(os.path.join(root, file))
+    return file_paths
+
+
 def jsonl_append(file_path, newline):
     assert type(newline) == dict, "newline must be a dict"
     with open(file_path, "a") as f:
