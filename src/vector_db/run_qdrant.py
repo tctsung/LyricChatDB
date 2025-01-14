@@ -22,16 +22,17 @@ def main():
     TODO: upload data to Qdrant DB
     """
     # setup
-    filepath = "data/NEFFEX_2024_09_19_23_07_06/data_for_DB.parquet"
-    collection_name = "NEFFEX"
+    filepath = "data/OpenLyrics/OpenLyrics_2025_01_12_21_36_33/data_for_DB.parquet"
+    collection_name = "OpenLyrics"
     qdrant_url = "https://94ddfbca-50be-4fb8-8791-ed716c146a08.europe-west3-0.gcp.cloud.qdrant.io:6333"
     df = pd.read_parquet(filepath)
-    utils.set_loggings("info")  # set logging level
 
-    # upload to Qdrant:
-    db = qd.QdrantVecDB(device="cuda", url_db=qdrant_url)  # load cutomized OOP
-    db.create(collection_name, recreate=True)  # create collection
-    db.update(collection_name, df)  # upload data
+    # load cutomized OOP
+    db = qd.QdrantVecDB(url_db=qdrant_url, logging_level="info")
+    # create collection
+    db.create(collection_name, recreate=True)
+    # upload data, use summary as vector
+    db.update(collection_name, df, target="summary", batch_size=128)
     db.index(  # set payload schema for efficient filtering
         collection_name,
         {

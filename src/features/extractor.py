@@ -1,7 +1,10 @@
-# set working directory to LyricChat repo root
+from youtube_search import YoutubeSearch  # pip install youtube-search
 import os
 import sys
+import pandas as pd
+import uuid  # pip install uuid
 
+# set working directory to LyricChat repo root
 script_dir = os.path.dirname(os.path.abspath(__file__))
 repo_root = os.path.abspath(os.path.join(script_dir, "../.."))
 os.chdir(repo_root)
@@ -13,7 +16,7 @@ sys.path.append(repo_root)
 import src.LLM as LLM
 from src.PROMPT import SystemPrompt
 from src.LLM import human_msg, AI_msg, sys_msg, lyric_msg
-from src.utils import jsonl_append, read_jsonl
+import src.utils as utils
 
 # structured output:
 from pydantic import BaseModel, Field, model_validator, field_validator
@@ -23,6 +26,15 @@ from typing import Literal
 # basics:
 from tqdm import tqdm
 import json
+
+
+def main():
+    # set args:
+    input_path = r"data\NEFFEX_2024_09_19_23_07_06\lyrics_processed.json"
+    deployment = "local"  # make sure Ollama is activated if use local
+    # feature extraction:
+    data_prep = DataPrep(input_path, deployment)
+    data_prep.save()  # save as data_for_DB.parquet at same folder as input path
 
 
 # emotion labels to classify
@@ -81,43 +93,77 @@ class LyricExtract(BaseModel):
         return [c.value for c in val]  # turn ENUM to str after validation
 
 
-def main():
-    start_idx = 4
-    # read lyrics:
-    input_path = "data/NEFFEX_2024_09_19_23_07_06/lyrics_processed.json"
-    output_path = "data/NEFFEX_2024_09_19_23_07_06/summary_and_emotions.json"
-    with open(input_path, "r") as f:
-        lyrics = json.load(f)
-    # load model (make sure ollama server is running):
-    llm = LLM.InstructorLLM("local")
-    # generate prompt:
-    msg = [sys_msg(SystemPrompt.practical), None]  # None is buffer for input lyrics
-    res_lst = []  # buffer for model output
-    i = 0
-    for key, lyric in tqdm(lyrics.items()):
-        if i < start_idx:
-            i += 1
-            continue
-        msg[1] = lyric_msg(lyric)  # iterate through lyrics
-        res = llm.run(
-            msg, schema=LyricExtract, max_retries=10
-        )  # LLM response summary & classified emotions
+class DataPrep:
+    def __init__(self, input_path, deployment: Literal["cloud", "local"] = "local"):
+        """
+        TODO: turn scraped lyrics from json format to pd.DF with LLM extracted features (summary, emotions)
+        Args:
+            input_path: json file generated from src/webscraping
+            deployment: model type (cloud- Gemini, local- llama)
+        Output (pd.DF):
+            table with following features:
+            - uuid: row index
+            - artist: artist name
+            - title: song title
+            - youtube_link: youtube link for the song
+            - primary_emotion: LLM generated classification
+            - supporting_emotion: LLM generated classification
+            - summary: LLM generated summary
+            - lyric: song lyrics
 
-        # append each output to local:
-        primary_emotion, supporting_emotion, summary = (
-            res.emotions[0],
-            res.emotions[1],
-            res.summary,
-        )
-        dct = {
-            "key": key,
-            "primary_emotion": primary_emotion,
-            "supporting_emotion": supporting_emotion,
-            "summary": summary,
-        }
-        res_lst.append(dct)
-        jsonl_append(output_path, dct)
+        """
+        # load input:
+        self.input_path = input_path
+        self.dir_path = os.path.dirname(self.input_path)
+        with open(input_path, "r") as f:
+            self.lyrics = json.load(f)
+        # load model (make sure ollama server is running):
+        self.model = LLM.InstructorLLM(deployment)
 
+        # feature extraction:
+        self.get_summary_and_emotions()
+
+    def get_summary_and_emotions(self):
+        msg = [sys_msg(SystemPrompt.practical), None]  # None is buffer for input lyrics
+        res_lst = []  # buffer for model output
+        temp_output_path = os.path.join(self.dir_path, "LLM_temp_res.pickle")
+        # iterate through all songs:
+        for key, lyric in tqdm(self.lyrics.items()):
+            # get singer info:
+            key_lst = key.split("|||")
+            artist, title = key_lst[0], key_lst[1]
+            # feature extraction using LLM:
+            msg[1] = lyric_msg(lyric)  # update input w current lyrics
+            model_output = self.model.run(msg, schema=LyricExtract, max_retries=20)
+            res = {
+                "artist": artist,
+                "title": title,
+                "youtube_link": video_link(f"{artist} - {title} lyrics"),
+                "primary_emotion": model_output.emotions[0],
+                "supporting_emotion": model_output.emotions[1],
+                "summary": model_output.summary,
+                "lyric": lyric,
+            }
+            # save current outputs as pickle file to avoid lost all info:
+            res_lst.append(res)
+            utils.pickle_save(res_lst, temp_output_path)
+        # turn list to DF:
+        self.df = pd.DataFrame(res_lst)
+        self.df.index = [uuid.uuid4().hex for _ in range(len(res_lst))]
+
+    def save(self, output_name="data_for_DB.parquet"):
+        # TODO: save df to the same dir as input_path
+        output_path = os.path.join(self.dir_path, output_name)
+        self.df.to_parquet(output_path)
+
+
+##### Helper functions ######
+def video_link(query):
+    results = YoutubeSearch(query, max_results=1).to_dict()
+    return f"https://www.youtube.com{results[0]['url_suffix']}"
+
+
+##### Helper functions ######
 
 if __name__ == "__main__":
-    main()  # the func to run
+    main()

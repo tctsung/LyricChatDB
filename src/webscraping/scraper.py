@@ -11,6 +11,7 @@ import time
 import re
 import pickle
 from datetime import datetime
+from tqdm import tqdm
 
 # load helper functions:
 import src.utils as utils
@@ -28,6 +29,7 @@ class OpenLyricsScraper:
         # format of key: <artist>|||<song title>|||<scraped order>
         self.file_names = utils.find_files("data/lyrics-database/database", "")
         self.dct = {}  # buffer for lyrics in json format
+        self.dct_processed = {}
         self.txt_to_dct()
 
     def _extract_info(self, txt):
@@ -57,15 +59,18 @@ class OpenLyricsScraper:
 
     def txt_to_dct(self):
         # TODO: iterate all song files & save to dict
-        for i, filename in enumerate(self.file_names):
+        i = 0
+        for filename in tqdm(self.file_names):
             with open(filename, "r") as file:
                 txt = file.read()
             try:
                 artist_name, title, lyrics = self._extract_info(txt)
                 key = artist_name + "|||" + title + "|||" + str(i)
                 self.dct[key] = lyrics
+                self.dct_processed[key] = drop_duplicates(lyrics)
             except:
                 logging.warning(f"Failed to parse song idx {i}, file: {filename}")
+            i += 1
 
     def save(self, directory="data/OpenLyrics"):
         # TODO: save lyrics as json
@@ -74,9 +79,14 @@ class OpenLyricsScraper:
         )
         self.save_directory = os.path.join(directory, subfolder)
         os.makedirs(self.save_directory, exist_ok=True)
+        # save raw lyrics:
         self.save_path = os.path.join(self.save_directory, "lyrics_raw.json")
         with open(self.save_path, "w", encoding="utf-8") as fp:
             json.dump(self.dct, fp, indent=4)
+        self.save_path = os.path.join(self.save_directory, "lyrics_processed.json")
+        # save processed lyrics:
+        with open(self.save_path, "w", encoding="utf-8") as fp:
+            json.dump(self.dct_processed, fp, indent=4)
 
 
 class GeniusScraper:
@@ -227,34 +237,34 @@ class LyricProcessor:
             self.removed_similar_songs(threshold=similarity_threshold)
 
         # split to child chunks (for small2big retrieval):
-        self.split_to_chunks()
+        # self.split_to_chunks()
         # create output files:
         self.create_metadata()
 
-    def split_to_chunks(self):
-        # TODO: split lyrics into child chunks
-        lyrics_chunks = []
-        for key, lyrics in self.lyrics_processed.items():
-            key_split = key.split("|||")  # <artist>|||<song title>|||<scraped order>
-            artist_name, song_title = key_split[0], key_split[1]
-            chunks = lyrics.split("\n\n")  # split parent lyrics to child chunks
-            for idx, chunk in enumerate(chunks):
-                new_key = f"{key}|||{idx}"  # new unique ID with consistent delimiter
-                chunk_data = {
-                    "id": new_key,
-                    "artist_name": artist_name,
-                    "song_title": song_title,
-                    "lyrics": chunk,
-                    "parent_id": key,
-                    "chunk_order": idx,
-                }
-                # disabled because this is noise for vector DB:
-                # if idx == 0:                 # add artist name & song title to the first chunk for LLM to read
-                #     chunk_data["lyrics"] = f"```\n<Artist name> {artist_name} <\Artist>\n<Song title> {song_title} <\Song title>\n<Lyric> \n{chunk}"
-                # elif idx == len(chunks)-1:   # add delimiter to the last chunk
-                #     chunk_data["lyrics"] = chunk_data['lyrics'] + "\n<\Lyric>```"
-                lyrics_chunks.append(chunk_data)  # save to list
-        self.lyrics_chunks = pd.DataFrame(lyrics_chunks)
+    # def split_to_chunks(self):
+    #     # TODO: split lyrics into child chunks
+    #     lyrics_chunks = []
+    #     for key, lyrics in self.lyrics_processed.items():
+    #         key_split = key.split("|||")  # <artist>|||<song title>|||<scraped order>
+    #         artist_name, song_title = key_split[0], key_split[1]
+    #         chunks = lyrics.split("\n\n")  # split parent lyrics to child chunks
+    #         for idx, chunk in enumerate(chunks):
+    #             new_key = f"{key}|||{idx}"  # new unique ID with consistent delimiter
+    #             chunk_data = {
+    #                 "id": new_key,
+    #                 "artist_name": artist_name,
+    #                 "song_title": song_title,
+    #                 "lyrics": chunk,
+    #                 "parent_id": key,
+    #                 "chunk_order": idx,
+    #             }
+    #             # disabled because this is noise for vector DB:
+    #             # if idx == 0:                 # add artist name & song title to the first chunk for LLM to read
+    #             #     chunk_data["lyrics"] = f"```\n<Artist name> {artist_name} <\Artist>\n<Song title> {song_title} <\Song title>\n<Lyric> \n{chunk}"
+    #             # elif idx == len(chunks)-1:   # add delimiter to the last chunk
+    #             #     chunk_data["lyrics"] = chunk_data['lyrics'] + "\n<\Lyric>```"
+    #             lyrics_chunks.append(chunk_data)  # save to list
+    #     self.lyrics_chunks = pd.DataFrame(lyrics_chunks)
 
     def preprocess_open_lyrics(self):
         # add this after implementing open-lyrics scraper
@@ -382,7 +392,7 @@ class LyricProcessor:
 
     def create_metadata(self):
         # TODO: create metadata for the scraped lyrics
-        self.end_time = get_timestamp()
+        self.end_time = utils.get_timestamp()
         self.metadata = f"""Start time: {self.start_time}
 End time: {self.end_time}
 Total # of input songs: {len(self.lyrics_raw)}

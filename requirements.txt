@@ -1,0 +1,6 @@
+openai
+youtube-search
+pandas
+uuid
+tqdm
+fastembed

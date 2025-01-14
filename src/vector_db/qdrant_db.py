@@ -12,6 +12,7 @@ import uuid
 from dotenv import dotenv_values
 import logging
 import src.utils as utils
+from tqdm import tqdm
 
 ENV_VAR = dotenv_values(".env")
 
@@ -20,7 +21,6 @@ class QdrantVecDB:
     def __init__(
         self,
         model="BAAI/bge-small-en-v1.5",
-        device="cpu",
         url_db="http://localhost:6333",
         api_key=None,
         logging_level="info",
@@ -30,7 +30,6 @@ class QdrantVecDB:
         """
         # setup args:
         self.model = model
-        self.device = device
         self.url_db = url_db
         if api_key is None:  # get from .env if not provided
             api_key = ENV_VAR.get("Qdrant_API_KEY", None)
@@ -65,45 +64,45 @@ class QdrantVecDB:
                 ),
             )
 
-    def update(self, collection_name, data, batch_size=8):
+    def update(self, collection_name, data, target="input", batch_size=256):
         """
         TODO: update the collection with new data
         Args:
             collection_name: name of the collection
-            data: a dataframe with `input` column as embedding input & row index as id (uuid)
+            data: a dataframe with `target` column as embedding input & row index as id (uuid)
             batch_size: batch size for encoding
         """
         # sanity check:
         assert isinstance(data, pd.DataFrame), "data must be a dataframe"
-        assert "input" in data.columns, "dataframe must contain `input` column"
+        assert (
+            target in data.columns
+        ), f"dataframe must contain `{target}` column, or modify arg `target`"
         assert (
             data.index.to_series()
             .apply(lambda x: isinstance(x, str) and len(x) == 32)
             .all()
         ), "row index must be uuid"
-        # prepare input:
-        self.create(collection_name, recreate=False)  # create collection if not exist
-        data = self._encode(data, batch_size=batch_size)  # get vector embeddings
 
-        # update collection:
-        self.client.upsert(
-            collection_name=collection_name,
-            points=[
+        self.create(collection_name, recreate=False)  # create collection if not exist
+
+        # batch upload to Qdrant
+        for start_idx in tqdm(range(0, len(data), batch_size)):
+            batch_df = data.iloc[start_idx : start_idx + batch_size].copy()
+            batch_df_w_embeddings = self._encode(batch_df, target=target)
+            batch_points = [
                 PointStruct(
-                    id=id,  # uuid
-                    vector=row["embedding"].tolist(),  # embedding from self._encode()
+                    id=id,
+                    vector=row["embedding"].tolist(),
                     payload={
-                        "text": row["input"],  # text for RAG to return
-                        "metadata": row.drop(  # save all remaining features
-                            ["embedding", "input"]
-                        ).to_dict(),
+                        "text": row[target],
+                        "metadata": row.drop(["embedding", target]).to_dict(),
                     },
                 )
-                for id, row in data.iterrows()
-            ],
-        )
+                for id, row in batch_df_w_embeddings.iterrows()
+            ]
+            self.client.upsert(collection_name=collection_name, points=batch_points)
 
-    def _encode(self, data, target="input", batch_size=8):
+    def _encode(self, data, target="input", batch_size=256):
         """
         TODO: Helper for update(); encode data[target] and update data with new column 'embedding'
         Args:

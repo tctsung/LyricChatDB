@@ -3,8 +3,19 @@ from datetime import datetime
 import os
 import re
 import json
+import pickle
 import pandas as pd
 from youtube_search import YoutubeSearch  # pip install youtube-search
+
+
+def pickle_save(obj, file_path):
+    with open(file_path, "wb") as file:
+        pickle.dump(obj, file)
+
+
+def pickle_load(file_path):
+    with open(file_path, "rb") as file:
+        return pickle.load(file)
 
 
 def video_link(query):

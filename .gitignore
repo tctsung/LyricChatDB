@@ -3,6 +3,7 @@ temp.ipynb
 models/
 data/lyrics-database
 .env
+testing/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
